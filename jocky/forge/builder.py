@@ -12,6 +12,7 @@ from typing import List, Dict
 from ..compiler.pipeline import CompilerPipeline
 from ..blockchain.ledger import IntegrityLedger
 from ..common.evidence import Evidence, ArtifactType
+from ..demo_labels import live
 
 
 @dataclass
@@ -55,7 +56,9 @@ class ForgeBuilder:
         os.makedirs(self.output_dir, exist_ok=True)
 
         builds = []
-        print(f"\n[FORGE] Generating {len(targets)} polymorphic builds...\n")
+        hosts_str = "  ".join(targets)
+        live(f"Dispatching Forge build → {hosts_str}")
+        live("")
 
         for host in targets:
             build = self._generate_build(result.jir_json, host, result.jir.case_id)
@@ -65,9 +68,10 @@ class ForgeBuilder:
         # Verify no hash collisions
         hashes = [b.sha256 for b in builds]
         if len(hashes) == len(set(hashes)):
-            print(f"[FORGE] All {len(builds)} builds unique. Blockchain ledger anchored.")
+            live(f"All {len(builds)} builds unique — zero shared hash surface ✓")
+            live("Deployment certs embedded. Blockchain anchored.")
         else:
-            print(f"[FORGE] WARNING: Hash collision detected — mutation entropy insufficient.")
+            live("WARNING: Hash collision detected — mutation entropy insufficient.")
 
         return builds
 
@@ -117,9 +121,8 @@ class ForgeBuilder:
 
     def _print_build(self, build: ForgeBuild):
         """Print build info in demo format."""
-        print(f"[FORGE] {build.host} build:")
-        print(f"        SHA-256:      {build.sha256[:16]}...")
-        print(f"        Entry point:  {build.entry_point}")
-        print(f"        Import hash:  {build.import_hash[:16]}...")
-        print(f"        Build ID:     {build.build_id} | Bound: {build.case_id} / {build.host}")
-        print()
+        live(f"{build.host}  BuildID: {build.build_id}")
+        live(f"         SHA-256: {build.sha256}")
+        live(f"         Entry:   {build.entry_point}")
+        live(f"         ImpHash: {build.import_hash[:16]}")
+        live("")
