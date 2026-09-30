@@ -1,65 +1,68 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  Drawer, List, ListItemButton, ListItemIcon, ListItemText,
-  Typography, Box, Divider,
-} from '@mui/material';
-import {
-  Dashboard, Code, DeviceHub, Timeline, BugReport,
-  Memory, VerifiedUser, Description, Dns, Login, FolderOpen,
-} from '@mui/icons-material';
+import { NavLink, useNavigate } from 'react-router-dom';
 
-const NAV_ITEMS = [
-  { path: '/dashboard',  label: 'Dashboard',      icon: <Dashboard /> },
-  { path: '/cases',      label: 'Case Manager',   icon: <FolderOpen /> },
-  { path: '/editor',     label: 'JOCKY Editor',   icon: <Code /> },
-  { path: '/endpoints',  label: 'Endpoints',      icon: <Dns /> },
-  { path: '/graph',      label: 'Evidence Graph',  icon: <DeviceHub /> },
-  { path: '/timeline',   label: 'Timeline',        icon: <Timeline /> },
-  { path: '/findings',   label: 'Findings',        icon: <BugReport /> },
-  { path: '/kernel',     label: 'Kernel State',    icon: <Memory /> },
-  { path: '/blockchain', label: 'Blockchain',       icon: <VerifiedUser /> },
-  { path: '/reports',    label: 'Reports',          icon: <Description /> },
+const LINKS = [
+  { to: '/dashboard',  label: 'Dashboard',    icon: '⬡' },
+  { to: '/editor',     label: 'Editor',        icon: '✎' },
+  { to: '/endpoints',  label: 'Endpoints',     icon: '⬢' },
+  { to: '/graph',      label: 'Evidence Graph',icon: '◈' },
+  { to: '/timeline',   label: 'Timeline',      icon: '◷' },
+  { to: '/findings',   label: 'Findings',      icon: '◉' },
+  { to: '/kernel',     label: 'Kernel State',  icon: '⬖' },
+  { to: '/blockchain', label: 'Blockchain',    icon: '⛓' },
+  { to: '/reports',    label: 'Reports',       icon: '⊞' },
 ];
 
-export default function Sidebar({ width }) {
+export default function Sidebar() {
   const navigate = useNavigate();
-  const location = useLocation();
+
+  function logout() {
+    localStorage.removeItem('jocky_token');
+    navigate('/login');
+  }
 
   return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width,
-        '& .MuiDrawer-paper': {
-          width, boxSizing: 'border-box',
-          bgcolor: 'background.paper', borderRight: '1px solid #1e293b',
-        },
-      }}
-    >
-      <Box sx={{ p: 2, textAlign: 'center' }}>
-        <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 700 }}>
-          JOCKY
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Forensic Command Console
-        </Typography>
-      </Box>
-      <Divider />
-      <List>
-        {NAV_ITEMS.map(({ path, label, icon }) => (
-          <ListItemButton
-            key={path}
-            selected={location.pathname === path}
-            onClick={() => navigate(path)}
+    <aside className="fixed left-0 top-0 h-full w-56 bg-gray-950 border-r border-gray-800 flex flex-col z-10">
+      {/* Header */}
+      <div className="px-4 py-4 border-b border-gray-800">
+        <div className="text-green-400 font-bold text-lg tracking-widest">JOCKY</div>
+        <div className="text-gray-500 text-xs mt-0.5">OP-FALCON-01</div>
+        <div className="flex items-center gap-1 mt-1">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block"></span>
+          <span className="text-green-400 text-xs">ACTIVE</span>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 py-2 overflow-y-auto">
+        {LINKS.map(({ to, label, icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
+                isActive
+                  ? 'bg-gray-800 text-green-400 border-r-2 border-green-400'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`
+            }
           >
-            <ListItemIcon sx={{ color: location.pathname === path ? 'primary.main' : 'text.secondary' }}>
-              {icon}
-            </ListItemIcon>
-            <ListItemText primary={label} />
-          </ListItemButton>
+            <span className="text-base w-5 text-center">{icon}</span>
+            <span>{label}</span>
+          </NavLink>
         ))}
-      </List>
-    </Drawer>
+      </nav>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-gray-800">
+        <div className="text-gray-600 text-xs mb-2">SIH 2026 · PS 26148 · NTRO</div>
+        <button
+          onClick={logout}
+          className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+        >
+          ⏻ Logout
+        </button>
+      </div>
+    </aside>
   );
 }

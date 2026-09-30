@@ -34,6 +34,15 @@ from .common.evidence import (
     TimelineEvent, EvidenceGraph, InvestigationCase,
 )
 from .demo_labels import live, simulated, note
+from . import session as _session
+
+
+def _broadcast(case_id: str, event_type: str, data: dict) -> None:
+    try:
+        from .web.broadcast import broadcast
+        broadcast(case_id, event_type, data)
+    except Exception:
+        pass
 
 
 BANNER = r"""
@@ -44,7 +53,7 @@ BANNER = r"""
 ╚█████╔╝╚██████╔╝╚██████╗██║  ██╗   ██║
  ╚════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝
   From Program to Verified Investigation
-  Smart India Hackathon 2024 | PS 26148 | NTRO
+  Smart India Hackathon 2026 | PS 26148 | NTRO
 """
 
 EXAMPLE_PROGRAM = '''case "OP-FALCON-01"
@@ -281,6 +290,7 @@ class DemoRunner:
     def run_all(self, from_step: int = 1):
         """Run all demo steps."""
         print(BANNER)
+        _session.init("OP-FALCON-01")
 
         steps = [
             (1, "JOCKY Language — Writing an Investigation Program", self.step_01_language),
@@ -369,9 +379,15 @@ class DemoRunner:
 
     def step_02_compiler(self):
         """Run the full compiler pipeline — all output is LIVE PIPELINE."""
+        import contextlib
+
         live("Running JOCKY compiler on op_falcon.jky...")
         pipeline = CompilerPipeline(verbose=True)
-        result = pipeline.compile(EXAMPLE_PROGRAM, "op_falcon.jky")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            result = pipeline.compile(EXAMPLE_PROGRAM, "op_falcon.jky")
+        for line in buf.getvalue().splitlines():
+            live(line)
 
         if result.success and result.jir:
             from .compiler.jir import JIREmitter
@@ -414,6 +430,8 @@ class DemoRunner:
         print()
         live(f"Same source. Different seeds. Different SHA-256: {'YES' if hash1 != hash2 else 'NO — COLLISION'}")
         note("In production: real llvmlite emit_object output — mechanism identical.")
+        _session.write({"llvm": {"build1": {"seed": seed1, "sha256": hash1},
+                                  "build2": {"seed": seed2, "sha256": hash2}}})
 
     def step_04_forge(self):
         """Run the Forge polymorphic build pipeline."""
@@ -422,7 +440,20 @@ class DemoRunner:
         os.makedirs(forge_dir, exist_ok=True)
 
         builder = ForgeBuilder(output_dir=forge_dir)
-        builder.deploy(EXAMPLE_PROGRAM, "op_falcon.jky", ["HOST-01", "HOST-02", "HOST-03"])
+        builds = builder.deploy(EXAMPLE_PROGRAM, "op_falcon.jky", ["HOST-01", "HOST-02", "HOST-03"])
+        if builds:
+            forge_data = {
+                b.host: {
+                    "build_id":    b.build_id,
+                    "sha256":      b.sha256,
+                    "entry_point": b.entry_point,
+                    "import_hash": b.import_hash,
+                    "status":      "COMPLETE",
+                }
+                for b in builds
+            }
+            _session.write({"forge": forge_data})
+            _broadcast("OP-FALCON-01", "FORGE_COMPLETE", {"builds": forge_data})
 
     def step_05_hollow(self):
         """Spectre Agent — Process Hollowing."""
@@ -623,6 +654,23 @@ class DemoRunner:
             host="HOST-01",
         )
         self.case.findings = findings
+        if findings:
+            f = findings[0]
+            finding_data = {
+                "finding_id":   f.finding_id,
+                "severity":     f.severity.value,
+                "confidence":   f.confidence.value,
+                "description":  f.explanation,
+                "evidence_ids": list(f.evidence_ids),
+                "rules_fired":  list(f.rules_fired),
+            }
+            _session.write({"finding": finding_data,
+                             "findings": [finding_data]})
+            _broadcast("OP-FALCON-01", "FINDING_RAISED", {
+                "finding_id": f.finding_id,
+                "severity":   f.severity.value,
+                "confidence": f.confidence.value,
+            })
 
     def step_15_blockchain(self):
         """Blockchain integrity verification (LIVE PIPELINE)."""
@@ -667,6 +715,21 @@ class DemoRunner:
         live("Immutable ledger record preserved. Investigation integrity maintained.")
         # Restore original state
         del ev.data["__tamper_demo__"]
+        # Write live blockchain data to session
+        if record:
+            _session.write({"blockchain": {
+                "evidence_id":   "E-00421",
+                "on_chain_hash": record.sha256,
+                "anchored_at":   record.timestamp,
+                "current_hash":  current,
+                "tamper_hash":   tampered_hash,
+                "tamper_ts":     ts_now,
+                "verified":      bool(match),
+            }})
+            _broadcast("OP-FALCON-01", "BLOCKCHAIN_VERIFIED", {
+                "evidence_id": "E-00421",
+                "verified":    bool(match),
+            })
 
     def step_16_ai_assistant(self):
         """AI Assistant — evidence-grounded explanation (LIVE PIPELINE)."""
@@ -682,7 +745,12 @@ class DemoRunner:
 
         if self.case.findings:
             finding = self.case.findings[0]
-            _api_label = "claude-sonnet-4-6" if os.environ.get("ANTHROPIC_API_KEY") else "local builder"
+            if os.environ.get("GROQ_API_KEY"):
+                _api_label = "groq/llama3-70b-8192"
+            elif os.environ.get("ANTHROPIC_API_KEY"):
+                _api_label = "claude-sonnet-4-6"
+            else:
+                _api_label = "local builder"
             live(f"Querying AI assistant for finding {finding.finding_id}  [{_api_label}]")
             live(f"Context: severity={finding.severity.value}  confidence={finding.confidence.value}  "
                  f"rules={len(finding.rules_fired)}  evidence_ids={len(finding.evidence_ids)}")
@@ -711,6 +779,19 @@ class DemoRunner:
             live(f"  Status:    {'VALIDATED ✓' if response.accepted else 'REJECTED ✗'}")
             print()
             print("-" * 50)
+            # Write live AI data to session
+            _session.write({"ai": {
+                "finding_id":  finding.finding_id,
+                "explanation": response.content,
+                "cited_ids":   list(response.citations.cited_ids),
+                "valid_ids":   list(response.citations.valid_ids),
+                "invalid_ids": list(response.citations.invalid_ids),
+                "status":      "VALIDATED" if response.accepted else "REJECTED",
+            }})
+            _broadcast("OP-FALCON-01", "AI_COMPLETE", {
+                "finding_id": finding.finding_id,
+                "status":     "VALIDATED" if response.accepted else "REJECTED",
+            })
 
         live("── Citation rejection demonstration " + "─" * 22)
         print()
@@ -773,11 +854,14 @@ def main():
     parser.add_argument("--no-pause", action="store_true", help="Run without pauses")
     args = parser.parse_args()
 
-    # Warn if ANTHROPIC_API_KEY is missing (Step 16 will use local fallback)
-    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+    # Warn if no AI API key is set (Step 16 will use local fallback)
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not groq_key and not anthropic_key:
         print(
-            "\033[93m[DEMO NOTE]\033[0m       ANTHROPIC_API_KEY not set — "
-            "Step 16 will use local explanation builder (set key for real API call)\n"
+            "\033[93m[DEMO NOTE]\033[0m       No AI API key set — "
+            "Step 16 will use local explanation builder. "
+            "Set GROQ_API_KEY for real API call.\n"
         )
 
     runner = DemoRunner(interactive=not args.no_pause)

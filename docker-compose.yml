@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/etc/nginx/certs
+    depends_on: [backend, frontend]
+
+  backend:
+    build: ./backend
+    command: daphne -b 0.0.0.0 -p 8000 jocky.asgi:application
+    environment:
+      DATABASE_URL: postgresql://jocky:jocky@postgres:5432/jocky
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      FABRIC_NETWORK_PROFILE: /fabric/network.json
+      JOCKY_CA_KEY: ${JOCKY_CA_KEY}
+    depends_on: [postgres, redis, fabric-peer]
+    volumes:
+      - ./backend:/app
+      - ./blockchain/network:/fabric
+      - jocky_reports:/tmp/jocky_reports
+
+  celery:
+    build: ./backend
+    command: celery -A jocky worker -l info -Q forge,evidence,correlation
+    environment:
+      DATABASE_URL: postgresql://jocky:jocky@postgres:5432/jocky
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on: [postgres, redis]
+
+  frontend:
+    build: ./frontend
+    command: serve -s build -l 3000
+    depends_on: [backend]
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: jocky
+      POSTGRES_USER: jocky
+      POSTGRES_PASSWORD: jocky
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+  fabric-peer:
+    image: hyperledger/fabric-peer:2.5
+    environment:
+      CORE_PEER_ID: peer0.org1.example.com
+      CORE_PEER_LOCALMSPID: Org1MSP
+      CORE_PEER_GOSSIP_BOOTSTRAP: peer0.org1.example.com:7051
+      CORE_PEER_LISTENADDRESS: 0.0.0.0:7051
+    volumes:
+      - ./blockchain/network:/etc/hyperledger/fabric
+    depends_on: [fabric-orderer]
+
+  fabric-orderer:
+    image: hyperledger/fabric-orderer:2.5
+    environment:
+      ORDERER_GENERAL_LISTENADDRESS: 0.0.0.0
+      ORDERER_GENERAL_GENESISMETHOD: file
+      ORDERER_GENERAL_GENESISFILE: /etc/hyperledger/fabric/genesis.block
+    volumes:
+      - ./blockchain/network:/etc/hyperledger/fabric
+
+  fabric-ca:
+    image: hyperledger/fabric-ca:1.5
+    command: fabric-ca-server start -b admin:adminpw
+
+volumes:
+  postgres_data:
+  jocky_reports:

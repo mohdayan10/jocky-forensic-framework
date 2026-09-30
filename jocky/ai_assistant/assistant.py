@@ -54,15 +54,21 @@ class ForensicAssistant:
     def explain_finding(self, finding: Finding) -> AssistantResponse:
         """Generate an evidence-grounded explanation for a finding.
 
-        Uses the real Anthropic API when ANTHROPIC_API_KEY is set.
-        Falls back to local explanation builder otherwise.
+        Priority: GROQ_API_KEY → ANTHROPIC_API_KEY → local builder.
         """
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if api_key:
+        groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+        if groq_key:
             try:
-                return self._explain_via_api(finding, api_key)
+                return self._explain_via_groq(finding, groq_key)
             except Exception as exc:
-                print(f"[AI] API call failed ({exc}) — using local explanation builder")
+                print(f"[AI] Groq API call failed ({exc}) — trying Anthropic")
+
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if anthropic_key:
+            try:
+                return self._explain_via_anthropic(finding, anthropic_key)
+            except Exception as exc:
+                print(f"[AI] Anthropic API call failed ({exc}) — using local explanation builder")
 
         # Local fallback
         explanation = self._build_explanation(finding)
@@ -74,13 +80,8 @@ class ForensicAssistant:
             finding_id=finding.finding_id,
         )
 
-    def _explain_via_api(self, finding: Finding, api_key: str) -> AssistantResponse:
-        """Call the Anthropic API (claude-sonnet-4-6) for a real explanation.
-
-        Sends only finding metadata and evidence descriptors — never raw evidence.
-        """
-        import anthropic  # type: ignore
-
+    def _build_prompt(self, finding: Finding) -> str:
+        """Build the forensic explanation prompt (shared by all API backends)."""
         all_case_ev = {e.evidence_id: e for e in self.case.evidence}
         evidence_lines = []
         for eid in finding.evidence_ids:
@@ -89,7 +90,7 @@ class ForensicAssistant:
                 desc = self._describe_evidence(ev)
                 evidence_lines.append(f"  [{eid}] {ev.artifact_type.value}: {desc}")
 
-        prompt = (
+        return (
             "You are a forensic analysis assistant. "
             "Explain the following security finding using ONLY the evidence listed below.\n\n"
             f"Finding ID: {finding.finding_id}\n"
@@ -106,6 +107,33 @@ class ForensicAssistant:
             "4. Does NOT reference any evidence ID not in the list above."
         )
 
+    def _explain_via_groq(self, finding: Finding, api_key: str) -> AssistantResponse:
+        """Call Groq API (llama3-70b-8192) for a real explanation."""
+        from groq import Groq  # type: ignore
+
+        prompt = self._build_prompt(finding)
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        response_text = completion.choices[0].message.content
+
+        validation = self._validate_citations(response_text)
+        return AssistantResponse(
+            content=response_text,
+            citations=validation,
+            accepted=validation.valid,
+            finding_id=finding.finding_id,
+        )
+
+    def _explain_via_anthropic(self, finding: Finding, api_key: str) -> AssistantResponse:
+        """Call the Anthropic API (claude-sonnet-4-6) for a real explanation."""
+        import anthropic  # type: ignore
+
+        prompt = self._build_prompt(finding)
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model="claude-sonnet-4-6",
@@ -121,6 +149,10 @@ class ForensicAssistant:
             accepted=validation.valid,
             finding_id=finding.finding_id,
         )
+
+    # Keep old name as alias for backward compatibility
+    def _explain_via_api(self, finding: Finding, api_key: str) -> AssistantResponse:
+        return self._explain_via_anthropic(finding, api_key)
 
     def validate_external_response(self, response_text: str) -> AssistantResponse:
         """Validate an externally-generated response (e.g., from an LLM).
