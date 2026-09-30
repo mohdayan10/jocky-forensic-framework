@@ -1,0 +1,26 @@
+case "OP-FALCON-01"
+target hostgroup ENTERPRISE_EAST
+
+collect processes
+collect network
+collect persistence
+collect drivers
+collect file_metadata WHERE path IN ["Temp", "AppData"]
+                       AND modified_within "72h"
+collect kernel_callbacks
+collect hook_state
+collect hidden_processes
+
+correlate processes WITH network WITHIN 45 seconds
+correlate processes WITH files
+correlate users WITH processes
+
+detect unsigned_executable_in_temp
+detect byovd_loaded_driver
+detect suspicious_process_chain
+detect lateral_movement
+detect persistence_anomaly
+
+timeline
+evidence_graph
+generate report FORMAT [json, pdf]

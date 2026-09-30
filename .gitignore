@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Zone identifiers (WSL Windows artifacts)
+*.Zone.Identifier
+
+# Build artifacts
+agent.bin
+forge_builds/
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+sum.md

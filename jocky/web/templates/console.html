@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JOCKY Command Console</title>
+<style>
+:root {
+  --bg: #0a0e14;
+  --surface: #111820;
+  --border: #1e2a38;
+  --text: #c5cdd9;
+  --text-dim: #6b7d8f;
+  --accent: #00d4aa;
+  --accent-dim: #007a60;
+  --red: #ff4d4d;
+  --yellow: #ffcc00;
+  --blue: #4d9fff;
+  --green: #00d4aa;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header h1 {
+  font-size: 16px;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+
+.header .status {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.header .status .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.dot.green { background: var(--green); }
+.dot.yellow { background: var(--yellow); }
+.dot.red { background: var(--red); }
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  height: calc(100vh - 48px);
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.endpoint {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.endpoint .name {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.endpoint .os { color: var(--text-dim); font-size: 11px; }
+.endpoint .ep-status { margin-top: 4px; }
+
+.main {
+  padding: 16px 24px;
+  overflow-y: auto;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.panel-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+.panel-body {
+  padding: 16px;
+}
+
+.graph-node {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 12px;
+  margin: 4px;
+  font-size: 12px;
+}
+
+.graph-node.process { border-color: var(--blue); color: var(--blue); }
+.graph-node.network { border-color: var(--red); color: var(--red); }
+.graph-node.file { border-color: var(--yellow); color: var(--yellow); }
+.graph-node.driver { border-color: #ff6b6b; color: #ff6b6b; }
+.graph-node.registry { border-color: #b388ff; color: #b388ff; }
+.graph-node.user { border-color: var(--green); color: var(--green); }
+
+.graph-edge {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.timeline-event .ts {
+  color: var(--accent);
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.timeline-event .eid {
+  color: var(--blue);
+  min-width: 60px;
+}
+
+.finding {
+  background: var(--bg);
+  border: 1px solid var(--red);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.finding .severity { color: var(--red); font-weight: 700; }
+.finding .confidence { color: var(--yellow); }
+
+.right-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.evidence-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.evidence-item .eid { color: var(--blue); font-weight: 600; }
+.evidence-item .etype { color: var(--text-dim); }
+.evidence-item .hash { color: var(--text-dim); font-size: 10px; }
+
+.blockchain-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.blockchain-badge.verified { background: #003d2e; color: var(--green); }
+.blockchain-badge.failed { background: #3d0000; color: var(--red); }
+
+.btn {
+  background: var(--accent-dim);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  margin: 4px;
+}
+
+.btn:hover { background: var(--accent); color: var(--bg); }
+
+.actions { margin-top: 12px; }
+
+#output {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 12px;
+  display: none;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>JOCKY COMMAND CONSOLE</h1>
+  <div class="status">
+    <span><span class="dot green"></span> HOST-01 Windows</span>
+    <span><span class="dot green"></span> HOST-02 Ubuntu</span>
+    <span><span class="dot green"></span> HOST-03 Windows</span>
+    <span><span class="dot green"></span> Fabric Peers</span>
+    <span>Case: OP-FALCON-01</span>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Sidebar: Endpoints -->
+  <div class="sidebar">
+    <h3>Endpoints</h3>
+    <div class="endpoint">
+      <div class="name"><span class="dot green"></span> HOST-01</div>
+      <div class="os">Windows 11 Pro | 10.0.0.101</div>
+      <div class="ep-status"><span class="dot green"></span> Connected — 187 artifacts</div>
+    </div>
+    <div class="endpoint">
+      <div class="name"><span class="dot green"></span> HOST-02</div>
+      <div class="os">Ubuntu 22.04 | 10.0.0.102</div>
+      <div class="ep-status"><span class="dot green"></span> Connected — 143 artifacts</div>
+    </div>
+    <div class="endpoint">
+      <div class="name"><span class="dot green"></span> HOST-03</div>
+      <div class="os">Windows Server 2022 | 10.0.0.103</div>
+      <div class="ep-status"><span class="dot green"></span> Connected — 156 artifacts</div>
+    </div>
+
+    <h3 style="margin-top:24px">Investigation</h3>
+    <div class="endpoint">
+      <div class="name">OP-FALCON-01</div>
+      <div class="os">Status: ACTIVE</div>
+      <div class="ep-status">Findings: 1 CRITICAL</div>
+    </div>
+
+    <h3 style="margin-top:24px">Blockchain</h3>
+    <div class="endpoint">
+      <div class="name"><span class="dot green"></span> Hyperledger Fabric</div>
+      <div class="os">Channel: jocky-evidence</div>
+      <div class="ep-status">Peers: 3/3 healthy</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" onclick="dispatch()">Dispatch to ALL</button>
+      <button class="btn" onclick="correlate()">Run Correlation</button>
+      <button class="btn" onclick="verifyIntegrity()">Verify Integrity</button>
+      <button class="btn" onclick="crossHostQuery()">Cross-Host Query</button>
+    </div>
+  </div>
+
+  <!-- Main: Graph + Timeline + Finding -->
+  <div class="main">
+    <div class="panel">
+      <div class="panel-header">Evidence Graph — HOST-01</div>
+      <div class="panel-body" id="graph-container">
+        <div style="text-align:center">
+          <div class="graph-node user">jdoe (USER)</div>
+          <div class="graph-edge">└── initiated ──▸</div>
+          <div style="margin-left:40px">
+            <div class="graph-node process">cmd.exe PID 4821 (E-00421)</div>
+            <div class="graph-edge" style="margin-left:20px">├── spawned ──▸ <span class="graph-node process">powershell.exe PID 4892 (E-00455)</span></div>
+            <div style="margin-left:60px">
+              <div class="graph-edge">├── connected_to ──▸ <span class="graph-node network">185.220.101.42:443 (E-00431)</span></div>
+              <div class="graph-edge">└── loaded ──▸ <span class="graph-node driver">VulnDrv.sys CVE-2021-21551 (E-00441)</span></div>
+            </div>
+            <div class="graph-edge" style="margin-left:20px">├── created ──▸ <span class="graph-node file">svc.exe unsigned PE (E-00422)</span></div>
+            <div class="graph-edge" style="margin-left:20px">└── modified ──▸ <span class="graph-node registry">Run key persistence (E-00438)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">Chronological Timeline — HOST-01</div>
+      <div class="panel-body">
+        <div class="timeline-event"><span class="ts">09:31:02</span><span class="eid"></span>User session initiated — jdoe</div>
+        <div class="timeline-event"><span class="ts">09:31:04</span><span class="eid">E-00421</span>cmd.exe created (parent: explorer.exe)</div>
+        <div class="timeline-event"><span class="ts">09:31:05</span><span class="eid">E-00455</span>powershell.exe spawned (parent: cmd.exe)</div>
+        <div class="timeline-event"><span class="ts">09:31:06</span><span class="eid"></span>NTDLL hook state change detected</div>
+        <div class="timeline-event"><span class="ts">09:31:07</span><span class="eid">E-00431</span>Outbound connection to 185.220.101.42:443</div>
+        <div class="timeline-event"><span class="ts">09:31:08</span><span class="eid">E-00441</span>VulnDrv.sys loaded (CVE match confirmed)</div>
+        <div class="timeline-event"><span class="ts">09:31:09</span><span class="eid">E-00447</span>Kernel callback state change observed</div>
+        <div class="timeline-event"><span class="ts">09:31:10</span><span class="eid">E-00422</span>svc.exe created in Temp (unsigned PE)</div>
+        <div class="timeline-event"><span class="ts">09:31:13</span><span class="eid">E-00438</span>Persistence key written to Run key</div>
+        <div class="timeline-event"><span class="ts">09:31:17</span><span class="eid"></span>svchost.exe memory region mismatch detected</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">Finding — CRITICAL</div>
+      <div class="panel-body">
+        <div class="finding">
+          <div><span class="severity">CRITICAL</span> | <span class="confidence">HIGH CONFIDENCE</span></div>
+          <div style="margin-top:8px">
+            <strong>6 correlated signals across 8 evidence artifacts</strong>
+          </div>
+          <div style="margin-top:6px;color:var(--text-dim);font-size:12px">
+            Rules: UNSIGNED_TEMP_EXE, RAPID_OUTBOUND, BYOVD_DRIVER, PERSISTENCE_WRITE, HIDDEN_PROCESS_DELTA, KERNEL_CALLBACK_MOD
+          </div>
+          <div style="margin-top:6px;font-size:12px">
+            Evidence: E-00422, E-00455, E-00431, E-00441, E-00438, E-00450, E-00460, E-00447
+          </div>
+          <div style="margin-top:8px;font-size:12px;color:var(--text)">
+            Unsigned executable created in Temp directory. Outbound connection within 30s of process creation.
+            CVE-matched vulnerable driver loaded. Persistence artifact written. Process hidden from API enumeration.
+            Kernel callback state change detected.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="output"></div>
+  </div>
+
+  <!-- Right panel: Evidence inventory -->
+  <div class="right-panel">
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:12px">
+      Evidence Inventory (9 artifacts)
+    </h3>
+
+    <div class="evidence-item">
+      <div><span class="eid">E-00421</span> <span class="etype">PROCESS</span></div>
+      <div>cmd.exe PID 4821 — HOST-01</div>
+      <div class="hash">6889780f75bf2c25...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00422</span> <span class="etype">FILE</span></div>
+      <div>svc.exe (unsigned PE) — HOST-01</div>
+      <div class="hash">7b4c3f2a819de4f5...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00431</span> <span class="etype">NETWORK</span></div>
+      <div>185.220.101.42:443 TCP — HOST-01</div>
+      <div class="hash">a3f7c2e19b84d05f...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00438</span> <span class="etype">REGISTRY</span></div>
+      <div>Run key persistence — HOST-01</div>
+      <div class="hash">c9a1e4f7320b8f21...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00441</span> <span class="etype">DRIVER</span></div>
+      <div>VulnDrv.sys CVE-2021-21551 — HOST-01</div>
+      <div class="hash">d4e1f2a3b5c6d7e8...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00447</span> <span class="etype">KERNEL_CALLBACK</span></div>
+      <div>PsSetCreateProcessNotify removed — HOST-01</div>
+      <div class="hash">f2a3b4c5d6e7f8a9...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00450</span> <span class="etype">PERSISTENCE</span></div>
+      <div>Registry Run Key — HOST-01</div>
+      <div class="hash">b1c2d3e4f5a6b7c8...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00455</span> <span class="etype">PROCESS</span></div>
+      <div>powershell.exe PID 4892 — HOST-01</div>
+      <div class="hash">e4f5a6b7c8d9e0f1...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+    <div class="evidence-item">
+      <div><span class="eid">E-00460</span> <span class="etype">HIDDEN_PROCESS</span></div>
+      <div>svc_hidden.exe PID 4821 — HOST-01</div>
+      <div class="hash">1a2b3c4d5e6f7a8b...</div>
+      <div><span class="blockchain-badge verified">VERIFIED</span></div>
+    </div>
+
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin:16px 0 8px">
+      Blockchain Ledger
+    </h3>
+    <div class="evidence-item">
+      <div style="color:var(--green)">9/9 artifacts verified</div>
+      <div class="hash">Channel: jocky-evidence</div>
+      <div class="hash">Peers: peer0.ntro.gov.in, peer0.agency.gov.in, peer0.auditor.org</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+function showOutput(text) {
+  const el = document.getElementById('output');
+  el.style.display = 'block';
+  el.textContent = text;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function dispatch() {
+  showOutput('[DISPATCH] Dispatching OP-FALCON-01 to all endpoints...\n');
+  try {
+    const res = await fetch(API + '/api/dispatch?case_id=OP-FALCON-01&targets=HOST-01,HOST-02,HOST-03');
+    const data = await res.json();
+    let out = '[DISPATCH] Results:\n';
+    data.endpoints.forEach(ep => {
+      out += `  ${ep.host} (${ep.os}) → ${ep.status} — ${ep.evidence_count} artifacts\n`;
+    });
+    out += `\n[DISPATCH] Total evidence: ${data.total_evidence} artifacts\n`;
+    showOutput(out);
+  } catch(e) { showOutput('[ERROR] ' + e.message); }
+}
+
+async function correlate() {
+  showOutput('[CORRELATE] Running correlation engine on OP-FALCON-01...\n');
+  try {
+    const res = await fetch(API + '/api/correlate/OP-FALCON-01');
+    const data = await res.json();
+    let out = '[CORRELATE] Results:\n';
+    data.findings.forEach(f => {
+      out += `\n  Finding: ${f.finding_id}\n`;
+      out += `  Severity: ${f.severity} | Confidence: ${f.confidence}\n`;
+      out += `  Rules: ${f.rules_fired.join(', ')}\n`;
+      out += `  Evidence: ${f.evidence_ids.join(', ')}\n`;
+    });
+    showOutput(out);
+  } catch(e) { showOutput('[ERROR] ' + e.message); }
+}
+
+async function verifyIntegrity() {
+  showOutput('[BLOCKCHAIN] Querying Hyperledger Fabric ledger...\n');
+  try {
+    const res = await fetch(API + '/api/integrity/E-00421');
+    const data = await res.json();
+    let out = `[BLOCKCHAIN] Evidence ID:    ${data.evidence_id}\n`;
+    out += `[BLOCKCHAIN] On-chain hash:  ${data.on_chain_hash.substring(0,16)}...${data.on_chain_hash.slice(-4)}\n`;
+    out += `[BLOCKCHAIN] Current hash:   ${data.current_hash.substring(0,16)}...${data.current_hash.slice(-4)}\n`;
+    out += `[BLOCKCHAIN] Match:          ${data.match ? 'YES' : 'NO'}\n`;
+    out += data.integrity_verified
+      ? '[BLOCKCHAIN] INTEGRITY VERIFIED — artifact unchanged since collection\n'
+      : '[BLOCKCHAIN] INTEGRITY FAILURE — tamper detected\n';
+    showOutput(out);
+  } catch(e) { showOutput('[ERROR] ' + e.message); }
+}
+
+async function crossHostQuery() {
+  showOutput('[QUERY] find file WHERE hash == \'7b4c3f2a...\' ACROSS ALL hosts\n');
+  try {
+    const res = await fetch(API + '/api/query?hash=7b4c3f2a&hosts=HOST-01,HOST-02,HOST-03');
+    const data = await res.json();
+    let out = '\nResults:\n';
+    data.matches.forEach(m => {
+      out += `  ${m.host}  →  ${m.path.padEnd(36)} MATCH\n`;
+    });
+    if (data.lateral_movement) {
+      out += `\nLateral movement indicator: Same payload on ${data.matches.length} hosts.\n`;
+    }
+    showOutput(out);
+  } catch(e) { showOutput('[ERROR] ' + e.message); }
+}
+</script>
+</body>
+</html>
