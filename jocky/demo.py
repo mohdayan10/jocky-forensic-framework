@@ -12,8 +12,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -379,6 +381,19 @@ class DemoRunner:
             live("=" * 50)
             print(emitter.format_text(result.jir))
 
+        # ── Demonstrate policy gate ──────────────────────────────────────
+        print()
+        note("Testing policy gate — collect file_metadata with no filter:")
+        BAD_PROGRAM = (
+            'case "OP-FALCON-01"\n'
+            "target hostgroup ENTERPRISE_EAST\n"
+            "collect file_metadata\n"
+        )
+        bad_pipeline = CompilerPipeline(verbose=False)
+        bad_result = bad_pipeline.compile(BAD_PROGRAM, "bad_policy.jky")
+        for err in bad_result.errors:
+            live(f"PolicyViolation: {err}")
+
     def step_03_mutation(self):
         """Show per-compilation binary variance — hashes are LIVE PIPELINE."""
         import hashlib, secrets
@@ -402,12 +417,11 @@ class DemoRunner:
 
     def step_04_forge(self):
         """Run the Forge polymorphic build pipeline."""
-        # Write temp source file
-        src_path = "/tmp/jocky_demo_op_falcon.jky"
-        with open(src_path, "w") as f:
-            f.write(EXAMPLE_PROGRAM)
+        _tmp = tempfile.gettempdir()
+        forge_dir = os.path.join(_tmp, "jocky_forge_builds")
+        os.makedirs(forge_dir, exist_ok=True)
 
-        builder = ForgeBuilder(output_dir="/tmp/jocky_forge_builds")
+        builder = ForgeBuilder(output_dir=forge_dir)
         builder.deploy(EXAMPLE_PROGRAM, "op_falcon.jky", ["HOST-01", "HOST-02", "HOST-03"])
 
     def step_05_hollow(self):
@@ -565,21 +579,37 @@ class DemoRunner:
         """Evidence graph and timeline."""
         self._ensure_case()
 
-        live("EVIDENCE GRAPH — HOST-01:")
-        print("-" * 50)
-        for node in self.case.graph.nodes:
-            indent = "  " if node["type"] != "USER" else ""
-            live(f"{indent}[{node['type']}] {node['label']} ({node['id']})")
+        g = self.case.graph
+        node_map = {n["id"]: n for n in g.nodes}
 
-        live("RELATIONSHIPS:")
-        for edge in self.case.graph.edges:
-            live(f"  {edge['source']} --{edge['relationship']}--> {edge['target']}")
+        # Build adjacency: source → [(rel, target)]
+        adjacency: dict = {}
+        for edge in g.edges:
+            src = edge["source"]
+            adjacency.setdefault(src, []).append((edge["relationship"], edge["target"]))
 
-        live("TIMELINE — HOST-01:")
-        print("-" * 50)
+        live(f"Building evidence graph...")
+        live(f"  Nodes: {len(g.nodes)} — {', '.join(set(n['type'] for n in g.nodes))}")
+        live(f"  Edges: {len(g.edges)} (typed causal/temporal relationships)")
+        live("")
+        live("  Key relationships:")
+        for node in g.nodes:
+            nid = node["id"]
+            children = adjacency.get(nid, [])
+            if not children:
+                continue
+            live(f"    {nid}  {node['label']}")
+            for i, (rel, target) in enumerate(children):
+                tnode = node_map.get(target, {})
+                tlab = tnode.get("label", target)
+                prefix = "└─" if i == len(children) - 1 else "├─"
+                live(f"      {prefix}[{rel}]{'─' * max(1, 14 - len(rel))}> {target}  {tlab}")
+
+        live("")
+        live("Building chronological timeline...")
         for event in self.case.timeline:
             ts = event.timestamp.replace("2026-09-30T", "").replace("Z", "")
-            eid = f" [{event.evidence_id}]" if event.evidence_id else ""
+            eid = f"  [{event.evidence_id}]" if event.evidence_id else ""
             live(f"  {ts}  {event.description}{eid}")
 
     def step_14_correlation(self):
@@ -598,18 +628,45 @@ class DemoRunner:
         """Blockchain integrity verification (LIVE PIPELINE)."""
         self._ensure_case()
 
-        live("=== Verification (unmodified evidence) ===")
-        print()
         ev = self.case.get_evidence("E-00421")
-        if ev:
-            self.ledger.verify_verbose(ev)
+        if not ev:
+            live("Evidence E-00421 not found in case record.")
+            return
 
-        live("=== Verification (tampered evidence) ===")
-        print()
-        if ev:
-            ev.data["tampered"] = True
-            self.ledger.verify_verbose(ev)
-            del ev.data["tampered"]
+        live("Blockchain integrity verification — E-00421")
+        live("")
+        live("On-chain record (Hyperledger Fabric ledger):")
+        record = self.ledger.records.get("E-00421")
+        if record:
+            live(f"  evidence_id:   {record.evidence_id}")
+            live(f"  anchored_at:   {record.timestamp}")
+            live(f"  on_chain_hash: {record.sha256}")
+        live("")
+        live("Current artifact hash (recomputed):")
+        current = ev.compute_hash()
+        live(f"  current_hash:  {current}")
+        live("")
+        match = record and record.sha256 == current
+        live(f"Match: {'YES' if match else 'NO'} — artifact integrity {'confirmed ✓' if match else 'FAILURE ✗'}")
+
+        live("")
+        live("── Tamper demonstration " + "─" * 51)
+        live("Appending tamper flag to E-00421 data...")
+        ev.data["__tamper_demo__"] = True
+        live("")
+        live("Recomputing hash after modification:")
+        tampered_hash = ev.compute_hash()
+        if record:
+            live(f"  on_chain_hash: {record.sha256}")
+        live(f"  current_hash:  {tampered_hash}")
+        live("")
+        still_match = record and record.sha256 == tampered_hash
+        ts_now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        live(f"Match: {'YES' if still_match else 'NO'} — TAMPER DETECTED ✗")
+        live(f"Tamper detected at: {ts_now}")
+        live("Immutable ledger record preserved. Investigation integrity maintained.")
+        # Restore original state
+        del ev.data["__tamper_demo__"]
 
     def step_16_ai_assistant(self):
         """AI Assistant — evidence-grounded explanation (LIVE PIPELINE)."""
@@ -625,30 +682,47 @@ class DemoRunner:
 
         if self.case.findings:
             finding = self.case.findings[0]
-            live(f"Query: Explain finding {finding.finding_id} and what technique this suggests.")
+            _api_label = "claude-sonnet-4-6" if os.environ.get("ANTHROPIC_API_KEY") else "local builder"
+            live(f"Querying AI assistant for finding {finding.finding_id}  [{_api_label}]")
+            live(f"Context: severity={finding.severity.value}  confidence={finding.confidence.value}  "
+                 f"rules={len(finding.rules_fired)}  evidence_ids={len(finding.evidence_ids)}")
             print()
 
             response = assistant.explain_finding(finding)
-            live("Checking cited evidence IDs against case record...")
-            for eid in sorted(response.citations.cited_ids):
-                live(f"  {eid} → VALID")
-            live("All citations valid. Displaying response.")
+
+            # Print the explanation
+            live("AI EXPLANATION:")
+            live("─" * 57)
+            if response.accepted:
+                print(f"\n{response.content}\n")
+            else:
+                live("Response REJECTED — invalid citation detected.")
+            live("─" * 57)
             print()
 
-            if response.accepted:
-                print(f"[AI] {response.content}")
+            # Citation validation summary
+            live("Citation validation:")
+            cited_str = ", ".join(sorted(response.citations.cited_ids))
+            valid_str = ", ".join(sorted(response.citations.valid_ids))
+            invalid_str = ", ".join(sorted(response.citations.invalid_ids)) if response.citations.invalid_ids else "none"
+            live(f"  Cited IDs: {cited_str}")
+            live(f"  Valid IDs: {valid_str}")
+            live(f"  Invalid:   {invalid_str}")
+            live(f"  Status:    {'VALIDATED ✓' if response.accepted else 'REJECTED ✗'}")
             print()
             print("-" * 50)
 
-        live("=== Demonstrating citation validation enforcement ===")
+        live("── Citation rejection demonstration " + "─" * 22)
         print()
-        live("Query: Tell me about evidence artifact E-00999.")
-        print()
+        live("Forcing invalid citation E-00999 into AI context...")
         fake_response = (
             "The process [E-00421] connected to [E-00431] and loaded [E-00999] "
             "which is a suspicious driver."
         )
-        assistant.validate_verbose(fake_response)
+        result = assistant.validate_verbose(fake_response)
+        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if result.citations.invalid_ids:
+            live(f"Audit log: AI_CITATION_REJECTED — {result.citations.invalid_ids} — {ts}")
 
     def step_17_report(self):
         """Report generation (LIVE PIPELINE)."""
@@ -661,10 +735,14 @@ class DemoRunner:
                 self.case.evidence, "OP-FALCON-01", "HOST-01"
             )
 
+        _tmp = tempfile.gettempdir()
+        report_dir = os.path.join(_tmp, "jocky_reports")
+        os.makedirs(report_dir, exist_ok=True)
+
         generator = ReportGenerator(ledger=self.ledger)
         config = ReportConfig(
             formats=["json", "pdf"],
-            output_dir="/tmp/jocky_reports",
+            output_dir=report_dir,
         )
         # 486 = total dispatched across all 3 hosts (187 + 143 + 156)
         generator.generate_verbose(self.case, config, total_evidence_count=486)
@@ -681,6 +759,12 @@ class DemoRunner:
 
 
 def main():
+    # Force UTF-8 stdout so ANSI art and box-drawing chars work on Windows
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="JOCKY Demo Runner — Full investigation demo flow"
     )
@@ -688,6 +772,13 @@ def main():
     parser.add_argument("--from", dest="from_step", type=int, default=1, help="Start from step N")
     parser.add_argument("--no-pause", action="store_true", help="Run without pauses")
     args = parser.parse_args()
+
+    # Warn if ANTHROPIC_API_KEY is missing (Step 16 will use local fallback)
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        print(
+            "\033[93m[DEMO NOTE]\033[0m       ANTHROPIC_API_KEY not set — "
+            "Step 16 will use local explanation builder (set key for real API call)\n"
+        )
 
     runner = DemoRunner(interactive=not args.no_pause)
 

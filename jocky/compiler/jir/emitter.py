@@ -117,7 +117,7 @@ class JIREmitter:
 
         # Case and target
         if program.case:
-            jir.case_id = program.case.case_id
+            jir.case_id = program.case.case_id.replace("-", "_")
         if program.target:
             jir.target_type = program.target.target_type.upper()
             jir.target_name = program.target.target_name

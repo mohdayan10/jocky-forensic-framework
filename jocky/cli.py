@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 import os
 
@@ -128,6 +129,12 @@ def cmd_dispatch(args):
 
 
 def main():
+    # Force UTF-8 stdout so Unicode art renders on Windows
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         prog="jocky",
         description="JOCKY — Forensic Investigation Framework",

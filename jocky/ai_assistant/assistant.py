@@ -9,6 +9,7 @@ The assistant:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set
@@ -51,24 +52,73 @@ class ForensicAssistant:
         self._valid_ids: Set[str] = {e.evidence_id for e in case.evidence}
 
     def explain_finding(self, finding: Finding) -> AssistantResponse:
-        """Generate an evidence-grounded explanation for a finding."""
-        # Build explanation from the finding's structured data
+        """Generate an evidence-grounded explanation for a finding.
+
+        Uses the real Anthropic API when ANTHROPIC_API_KEY is set.
+        Falls back to local explanation builder otherwise.
+        """
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if api_key:
+            try:
+                return self._explain_via_api(finding, api_key)
+            except Exception as exc:
+                print(f"[AI] API call failed ({exc}) — using local explanation builder")
+
+        # Local fallback
         explanation = self._build_explanation(finding)
-
-        # Validate all cited evidence IDs
         validation = self._validate_citations(explanation)
-
-        accepted = validation.valid
-
-        if not accepted and not validation.valid:
-            # This shouldn't happen with our own generated explanations,
-            # but the validation gate is always enforced
-            explanation = "[VALIDATION] Response rejected — invalid citation detected."
-
         return AssistantResponse(
             content=explanation,
             citations=validation,
-            accepted=accepted,
+            accepted=validation.valid,
+            finding_id=finding.finding_id,
+        )
+
+    def _explain_via_api(self, finding: Finding, api_key: str) -> AssistantResponse:
+        """Call the Anthropic API (claude-sonnet-4-6) for a real explanation.
+
+        Sends only finding metadata and evidence descriptors — never raw evidence.
+        """
+        import anthropic  # type: ignore
+
+        all_case_ev = {e.evidence_id: e for e in self.case.evidence}
+        evidence_lines = []
+        for eid in finding.evidence_ids:
+            ev = all_case_ev.get(eid)
+            if ev:
+                desc = self._describe_evidence(ev)
+                evidence_lines.append(f"  [{eid}] {ev.artifact_type.value}: {desc}")
+
+        prompt = (
+            "You are a forensic analysis assistant. "
+            "Explain the following security finding using ONLY the evidence listed below.\n\n"
+            f"Finding ID: {finding.finding_id}\n"
+            f"Severity:   {finding.severity.value}\n"
+            f"Confidence: {finding.confidence.value}\n"
+            f"Rules fired: {', '.join(finding.rules_fired)}\n\n"
+            "Evidence artifacts (cite ONLY these IDs in [E-XXXXX] format — "
+            "do NOT invent or hallucinate evidence IDs):\n"
+            + "\n".join(evidence_lines)
+            + "\n\nWrite a concise 3-4 sentence forensic explanation that:\n"
+            "1. Describes the attack pattern observed across the evidence.\n"
+            "2. Names the specific technique used (e.g. BYOVD, DKOM, process hollowing).\n"
+            "3. References evidence by [E-XXXXX] notation where relevant.\n"
+            "4. Does NOT reference any evidence ID not in the list above."
+        )
+
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        response_text = message.content[0].text
+
+        validation = self._validate_citations(response_text)
+        return AssistantResponse(
+            content=response_text,
+            citations=validation,
+            accepted=validation.valid,
             finding_id=finding.finding_id,
         )
 
